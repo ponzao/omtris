@@ -35,13 +35,13 @@
          " x  "
          " x  "]
 
-        ["xx "
-         " xx"
-         "   "]
+        ["xx  "
+         " xx "
+         "    "]
 
-        [" xx"
-         "xx "
-         "   "]]))
+        [" xx "
+         "xx  "
+         "    "]]))
 
 (defn random-piece
   []
@@ -125,15 +125,14 @@
 (defn initial-state
   []
   {:grid (vec (repeat 16 (vec (repeat 12 nil)))) 
-   :piece nil})
-
+   :piece {:grid (random-piece) :point [5 0]}})
 
 ; FIXME:
 ; - Perhaps split?
 (defn tick
   [{:keys [piece grid] :as world}]
   (if-not piece
-    (assoc world :piece {:grid (random-piece) :point [5 0]})
+    world
     (let [piece (update-in piece [:point 1] inc)]
       (if (blocked? grid piece)
         (let [grid (insert-piece grid (:piece world))
@@ -144,7 +143,7 @@
                                  grid)
                          :piece {:grid (random-piece) :point [5 0]}}]
           (if (blocked? (:grid new-state) (:piece new-state))
-            (assoc (initial-state) :piece {:grid (random-piece) :point [5 0]})
+            (initial-state)
             new-state))
         {:grid grid
          :piece piece}))))
@@ -186,84 +185,36 @@
                         (map (fn [row]
                                (apply dom/tr nil
                                       (map (fn [value]
-                                             (dom/td #js {:className (when value (name value))} (if value " " " ")))
+                                             (dom/td #js {:className (when value (name value))}))
                                            row)))
                              grid)))))))
 
 (def key-mappings
-  {32 move-down
-   38 rotate-right
-   37 move-left
-   40 move-down
-   39 move-right})
+  {73 rotate-right
+   74 move-left
+   75 move-down
+   76 move-right})
 
-(def timers
-  (atom ()))
+; TODO: Separate key handler into own function
+(def w (gdom/getWindow))
+(events/listen w "keydown"
+               (fn [evt]
+                 (let [f (key-mappings evt/keyCode)]
+                   (swap! app-state (fn [{:keys [piece grid] :as state}]
+                                      (let [piece (f piece)]
+                                        (cond (and (not (blocked? grid piece))
+                                                   (= f move-down)) (recur {:piece piece :grid grid})
+                                              (blocked? grid piece) state
+                                              :else {:piece piece :grid grid})))))))
 
-(defn timer
-  [interval-atom f]
-  (f)
-  (swap! timers conj (.setTimeout js/window #(timer interval-atom f) @interval-atom)))
-
-(defn lagged-timer
-  [interval-atom f]
-  (swap! timers conj (.setTimeout js/window #(timer interval-atom f) @interval-atom)))
-
-(def interval-atom
-  (atom 1000))
-
-(defn key-down-handler
-  [evt]
-  (when-let [f (key-mappings evt/keyCode)]
-    (swap! app-state (fn [{:keys [piece grid] :as state}]
-                       ; TODO: Rename to `moved-piece`?
-                       (let [piece (f piece)]
-                               ; TODO: This could place piece at end and stop there?
-                         (cond (and (not (blocked? grid piece))
-                                    (= evt/keyCode 32)) (recur {:piece piece :grid grid})
-
-                               ; Handles move down when already at end (places piece)
-                               (and (blocked? grid piece) (= evt/keyCode 40))
-                               (-> (update-in state [:grid] insert-piece (:piece state))
-                                   (assoc :piece {:grid (random-piece) :point [5 0]}))
-
-                               (blocked? grid piece) state
-
-                               :else {:piece piece :grid grid})))))
-
-  (when (= evt/keyCode 32)
-    (doseq [t (take 10 @timers)]
-      (.clearTimeout (gdom/getWindow) t))
-    (timer interval-atom (fn [] (swap! app-state tick))))
-
-  (when (= evt/keyCode 40)
-    (doseq [t (take 10 @timers)]
-      (.clearTimeout (gdom/getWindow) t))
-    (lagged-timer interval-atom (fn [] (swap! app-state tick))))
-
-  )
-
-(defn init
-  []
-  (events/listen (gdom/getWindow) "keydown" key-down-handler)
-  (timer interval-atom (fn []
-                         (swap! app-state tick)))
-  )
+(.setInterval w (fn []
+                  (swap! app-state tick))
+              1000)
 
 (om/root
   game-view
   app-state
   {:target (. js/document (getElementById "tetris"))})
-
-(comment
-
-  (init)
-
-  (reset! interval-atom 500)
-
-  (swap! app-state assoc-in [:grid 0 0] :x) 
-
-)
 
 (comment
 
