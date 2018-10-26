@@ -43,9 +43,14 @@
          "xx "
          "   "]]))
 
+; FIXME: This doing too much work every time
 (defn random-piece
   []
-  (rand-nth pieces))
+  (rand-nth
+    (map (fn [piece color]
+           {:piece piece :color color})
+         pieces
+         (cycle ["red" "green" "blue" "yellow"]))))
 
 (defn move-left
   [piece]
@@ -95,7 +100,7 @@
                                             [(+ x (first point)) (+ y (second point))]))
                                         (reserved-points (:grid piece))))]
     (reduce (fn [acc [x y]]
-              (assoc-in acc [y x] :x))
+              (assoc-in acc [y x] {:reserved true :color (:color piece)}))
             grid
             reserved-piece-points)))
 
@@ -118,7 +123,7 @@
 
 (defn complete-rows
   [grid]
-  (let [complete-row? (partial every? #{:x})]
+  (let [complete-row? (partial every? some?)]
     (set (map first (filter (comp complete-row? second) (indexed-seq grid))))))
 
 (defn- vec-remove
@@ -130,13 +135,17 @@
   {:grid (vec (repeat height (vec (repeat width nil))))
    :piece nil})
 
+(defn generate-piece
+  []
+  (let [piece (random-piece)]
+    {:grid (:piece piece) :point [(/ width 2) 0] :color (:color piece)}))
 
 ; FIXME:
 ; - Perhaps split?
 (defn tick
   [{:keys [piece grid] :as world}]
   (if-not piece
-    (assoc world :piece {:grid (random-piece) :point [5 0]})
+    (assoc world :piece (generate-piece))
     (let [piece (update-in piece [:point 1] inc)]
       (if (blocked? grid piece)
         (let [grid (insert-piece grid (:piece world))
@@ -145,9 +154,9 @@
                                  (vec (concat (repeat (count rows) (vec (repeat width nil)))
                                               (apply vec-remove grid rows)))
                                  grid)
-                         :piece {:grid (random-piece) :point [5 0]}}]
+                         :piece (generate-piece)}]
           (if (blocked? (:grid new-state) (:piece new-state))
-            (assoc (initial-state) :piece {:grid (random-piece) :point [5 0]})
+            (assoc (initial-state) :piece (generate-piece))
             new-state))
         {:grid grid
          :piece piece}))))
@@ -167,11 +176,11 @@
   [{:keys [grid piece]}]
   (let [grid (mapv (partial mapv (fn [value]
                                    (if value
-                                     :reserved
+                                     (or (:color value) :reserved)
                                      nil)))
                    grid)]
     (reduce (fn [acc [x y]]
-              (assoc-in acc [x y] :dynamic))
+              (assoc-in acc [x y] (or (:color piece) :dynamic)))
             grid
             (piece-locs piece))))
 
@@ -190,7 +199,8 @@
                                    (map (fn [row]
                                           (apply dom/tr nil
                                                  (map (fn [value]
-                                                        (dom/td #js {:className (when value (name value))} (if value " " " ")))
+                                                        (dom/td #js {:className (when value (name value))}
+                                                                (if value " " " ")))
                                                       row)))
                                         grid))))))))
 
@@ -266,6 +276,8 @@
 (comment
 
   (init)
+
+  (deref app-state)
 
   (count (first (:grid (deref app-state))))
 
