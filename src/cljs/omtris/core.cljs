@@ -1,13 +1,13 @@
 (ns omtris.core
-  (:require-macros [cljs.core.async.macros :refer [go]])
-  (:require [clojure.browser.repl :as repl]
-            [om.core :as om :include-macros true]
+  (:require [om.core :as om :include-macros true]
             [om.dom :as dom :include-macros true]
             [goog.dom :as gdom]
             [goog.events :as events]
             [cljs.core.async :refer [put! chan <!]]
             [clojure.data :as data]
             [clojure.string :as string]))
+
+(enable-console-print!)
 
 (defn- str->piece
   [s]
@@ -99,6 +99,9 @@
             grid
             reserved-piece-points)))
 
+(def width 16)
+(def height 20)
+
 (defn blocked?
   [grid piece]
   (let [reserved-piece-points (set (map (fn [[x y]]
@@ -106,8 +109,8 @@
                                             [(+ x (first point)) (+ y (second point))]))
                                         (reserved-points (:grid piece))))]
     (or (some (partial some neg?) reserved-piece-points)
-        (some (partial <= 12) (map first reserved-piece-points))
-        (some (partial <= 16) (map second reserved-piece-points))
+        (some (partial <= width) (map first reserved-piece-points))
+        (some (partial <= height) (map second reserved-piece-points))
         (some reserved-piece-points (reserved-points grid)))))
 
 (def indexed-seq
@@ -124,7 +127,7 @@
 
 (defn initial-state
   []
-  {:grid (vec (repeat 16 (vec (repeat 12 nil)))) 
+  {:grid (vec (repeat height (vec (repeat width nil))))
    :piece nil})
 
 
@@ -139,7 +142,7 @@
         (let [grid (insert-piece grid (:piece world))
               rows (complete-rows grid)
               new-state {:grid (if (seq rows)
-                                 (vec (concat (repeat (count rows) (vec (repeat 12 nil))) 
+                                 (vec (concat (repeat (count rows) (vec (repeat width nil)))
                                               (apply vec-remove grid rows)))
                                  grid)
                          :piece {:grid (random-piece) :point [5 0]}}]
@@ -182,13 +185,14 @@
     (render-state [_ state]
       (let [grid (grid @app-state)]
         (dom/div #js {:id "tetris"}
-                 (apply dom/table nil
-                        (map (fn [row]
-                               (apply dom/tr nil
-                                      (map (fn [value]
-                                             (dom/td #js {:className (when value (name value))} (if value " " " ")))
-                                           row)))
-                             grid)))))))
+                 (dom/table nil
+                            (apply dom/tbody nil
+                                   (map (fn [row]
+                                          (apply dom/tr nil
+                                                 (map (fn [value]
+                                                        (dom/td #js {:className (when value (name value))} (if value " " " ")))
+                                                      row)))
+                                        grid))))))))
 
 (def key-mappings
   {32 move-down
@@ -212,18 +216,22 @@
 (def interval-atom
   (atom 1000))
 
+(defn get-keycode
+  [evt]
+  (.-keyCode evt))
+
 (defn key-down-handler
   [evt]
-  (when-let [f (key-mappings evt/keyCode)]
+  (when-let [f (key-mappings (get-keycode evt))]
     (swap! app-state (fn [{:keys [piece grid] :as state}]
                        ; TODO: Rename to `moved-piece`?
                        (let [piece (f piece)]
-                               ; TODO: This could place piece at end and stop there?
+                         ; TODO: This could place piece at end and stop there?
                          (cond (and (not (blocked? grid piece))
-                                    (= evt/keyCode 32)) (recur {:piece piece :grid grid})
+                                    (= (get-keycode evt) 32)) (recur {:piece piece :grid grid})
 
                                ; Handles move down when already at end (places piece)
-                               (and (blocked? grid piece) (= evt/keyCode 40))
+                               (and (blocked? grid piece) (= (get-keycode evt) 40))
                                (-> (update-in state [:grid] insert-piece (:piece state))
                                    (assoc :piece {:grid (random-piece) :point [5 0]}))
 
@@ -231,12 +239,12 @@
 
                                :else {:piece piece :grid grid})))))
 
-  (when (= evt/keyCode 32)
+  (when (= (get-keycode evt) 32)
     (doseq [t (take 10 @timers)]
       (.clearTimeout (gdom/getWindow) t))
     (timer interval-atom (fn [] (swap! app-state tick))))
 
-  (when (= evt/keyCode 40)
+  (when (= (get-keycode evt) 40)
     (doseq [t (take 10 @timers)]
       (.clearTimeout (gdom/getWindow) t))
     (lagged-timer interval-atom (fn [] (swap! app-state tick))))
@@ -259,19 +267,25 @@
 
   (init)
 
+  (count (first (:grid (deref app-state))))
+
+  (swap! app-state update :grid (comp vec (partial cons (vec (repeat 12 nil)))))
+
   (reset! interval-atom 500)
 
-  (swap! app-state assoc-in [:grid 0 0] :x) 
+  (swap! app-state assoc-in [:grid 0 0] :x)
 
 )
 
-(comment
 
-  ; Copy this into the repl and then run `:Piggieback (browser-repl-env)`
-  (defn browser-repl-env
-    []
-    (reset! cemerick.austin.repls/browser-repl-env
-            (cemerick.austin/repl-env)))
 
-  )
+
+; $ lein repl
+; (do (use 'figwheel-sidecar.repl-api) (start-figwheel!))
+;
+; Use :Connect to connect to the repl by hand.
+;
+; :Piggieback (figwheel-sidecar.repl-api/repl-env)
+
+
 
